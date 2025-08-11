@@ -133,27 +133,42 @@ pub async fn load_member_states(agent: &Agent) -> Vec<(SocketAddr, Member<Actor>
             match conn.prepare("SELECT address,foca_state FROM __corro_members") {
                 Ok(mut prepped) => {
                     match prepped
-                    .query_map([], |row| Ok((
-                            row.get::<_, String>(0)?.parse().map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?,
-                            row.get::<_, String>(1)?
-                        ))
-                    )
-                    .and_then(|rows| rows.collect::<rusqlite::Result<Vec<(SocketAddr, String)>>>())
-                {
-                    Ok(members) => {
-                        members.into_iter().filter_map(|(address, state)| match serde_json::from_str::<foca::Member<Actor>>(state.as_str()) {
-                            Ok(fs) => Some((address, fs)),
-                            Err(e) => {
-                                error!("could not deserialize foca member state: {e} (json: {state})");
-                                None
-                            }
-                        }).collect::<Vec<(SocketAddr, Member<Actor>)>>()
+                        .query_map([], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?.parse().map_err(|e| {
+                                    rusqlite::Error::FromSqlConversionFailure(
+                                        0,
+                                        rusqlite::types::Type::Text,
+                                        Box::new(e),
+                                    )
+                                })?,
+                                row.get::<_, String>(1)?,
+                            ))
+                        })
+                        .and_then(|rows| {
+                            rows.collect::<rusqlite::Result<Vec<(SocketAddr, String)>>>()
+                        }) {
+                        Ok(members) => {
+                            members
+                                .into_iter()
+                                .filter_map(|(address, state)| {
+                                    match serde_json::from_str::<foca::Member<Actor>>(
+                                        state.as_str(),
+                                    ) {
+                                        Ok(fs) => Some((address, fs)),
+                                        Err(e) => {
+                                            error!("could not deserialize foca member state: {e} (json: {state})");
+                                            None
+                                        }
+                                    }
+                                })
+                                .collect::<Vec<(SocketAddr, Member<Actor>)>>()
+                        }
+                        Err(e) => {
+                            error!("could not query for foca member states: {e}");
+                            vec![]
+                        }
                     }
-                    Err(e) => {
-                        error!("could not query for foca member states: {e}");
-                        vec![]
-                    },
-                }
                 }
                 Err(e) => {
                     error!("could not prepare query for foca member states: {e}");
